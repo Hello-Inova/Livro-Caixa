@@ -99,23 +99,25 @@
   .flow-val{ width:110px; text-align:right; flex-shrink:0; font-weight:600; }
 
   /* Ledger */
-  .ledger{ display:grid; grid-template-columns:1fr 34px 1fr; align-items:stretch; }
-  .spine{
-    position:relative;
-    background-image: linear-gradient(to bottom, transparent, var(--blue-2) 15%, var(--cyan) 50%, var(--blue-2) 85%, transparent);
-    background-position:center; background-repeat:no-repeat; background-size:1.5px 100%;
+  .tabs{ display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
+  .tab-btn{
+    flex:1; min-width:150px; padding:13px 18px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel); color:var(--text-soft); font-family:'Poppins', sans-serif;
+    font-weight:600; font-size:14px; letter-spacing:0.2px;
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    transition:border-color .15s, color .15s, background .15s, box-shadow .15s;
   }
-  .spine::before, .spine::after{
-    content:""; position:absolute; left:50%; transform:translateX(-50%);
-    width:7px; height:7px; border-radius:50%; background:var(--cyan);
-    box-shadow:0 0 10px 2px rgba(0,212,255,0.6);
-  }
-  .spine::before{ top:28%; }
-  .spine::after{ top:68%; }
+  .tab-btn:hover{ border-color:var(--line-2); color:var(--text); }
+  .tab-btn.active{ background:var(--grad); color:var(--white); border-color:transparent; box-shadow:0 6px 18px rgba(13,71,255,0.3); }
 
-  .col{ background:var(--panel); border:1px solid var(--line); padding:20px 20px 24px; min-height:280px; }
-  .col.pagar{ border-radius:14px 0 0 14px; border-right:none; }
-  .col.receber{ border-radius:0 14px 14px 0; border-left:none; }
+  .ledger{ position:relative; }
+  .ledger-empty{
+    border:1.5px dashed var(--line-2); border-radius:14px; padding:44px 20px; text-align:center;
+    color:var(--text-soft); font-size:13.5px;
+  }
+  .panel-hidden{ display:none !important; }
+
+  .col{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px 20px 24px; min-height:280px; }
 
   .col-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
   .col-head h2{ font-weight:600; font-size:17px; margin:0; letter-spacing:0.2px; }
@@ -246,11 +248,8 @@
     .flow{ padding:16px; margin-bottom:20px; }
     .flow-name{ width:60px; font-size:12px; }
     .flow-val{ width:88px; font-size:12px; }
-    .ledger{ grid-template-columns:1fr; }
-    .spine{ display:none; }
     .col{ padding:18px 16px 20px; }
-    .col.pagar{ border-radius:14px 14px 0 0; border-right:1px solid var(--line); border-bottom:none; }
-    .col.receber{ border-radius:0 0 14px 14px; border-left:1px solid var(--line); margin-top:-1px; }
+    .tab-btn{ min-width:130px; font-size:13px; padding:12px 14px; }
     .add-btn{ width:38px; height:38px; font-size:20px; }
     .col-filters{ gap:6px; }
     .entry{ grid-template-columns:28px 1fr auto; row-gap:8px; padding:14px 2px; }
@@ -297,8 +296,14 @@
     <div id="flowChart"></div>
   </div>
 
+  <div class="tabs">
+    <button class="tab-btn" id="tabPagar" aria-pressed="false">↓ Contas a Pagar</button>
+    <button class="tab-btn" id="tabReceber" aria-pressed="false">↑ Valores a Receber</button>
+  </div>
+
   <div class="ledger">
-    <div class="col pagar">
+    <div class="ledger-empty" id="ledgerEmpty">Selecione "Contas a Pagar" ou "Valores a Receber" acima para visualizar seus lançamentos.</div>
+    <div class="col pagar panel-hidden" id="panelPagar">
       <div class="col-head">
         <h2>Contas a Pagar</h2>
         <button class="add-btn" id="addPagar" aria-label="Adicionar conta a pagar">+</button>
@@ -306,8 +311,7 @@
       <div class="col-filters" id="filtersPagar"></div>
       <div id="listPagar"></div>
     </div>
-    <div class="spine"></div>
-    <div class="col receber">
+    <div class="col receber panel-hidden" id="panelReceber">
       <div class="col-head">
         <h2>Valores a Receber</h2>
         <button class="add-btn" id="addReceber" aria-label="Adicionar valor a receber">+</button>
@@ -389,7 +393,7 @@
 
   async function saveEntries(){
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.entries));
+      await window.storage.set(STORAGE_KEY, JSON.stringify(state.entries), false);
     }catch(e){
       showToast('Não foi possível salvar. Tente novamente.');
     }
@@ -397,8 +401,8 @@
 
   async function loadEntries(){
     try{
-      var raw = localStorage.getItem(STORAGE_KEY);
-      state.entries = raw ? JSON.parse(raw) : [];
+      var res = await window.storage.get(STORAGE_KEY, false);
+      state.entries = res && res.value ? JSON.parse(res.value) : [];
     }catch(e){
       state.entries = [];
     }
@@ -609,6 +613,23 @@
   });
   document.getElementById('addPagar').addEventListener('click', function(){ openModal('pagar', null); });
   document.getElementById('addReceber').addEventListener('click', function(){ openModal('receber', null); });
+
+  var activePanel = null;
+  function showPanel(tipo){
+    if(activePanel === tipo) return;
+    document.getElementById('ledgerEmpty').classList.add('panel-hidden');
+    if(activePanel){
+      document.getElementById(activePanel === 'pagar' ? 'panelPagar' : 'panelReceber').classList.add('panel-hidden');
+      document.getElementById(activePanel === 'pagar' ? 'tabPagar' : 'tabReceber').classList.remove('active');
+      document.getElementById(activePanel === 'pagar' ? 'tabPagar' : 'tabReceber').setAttribute('aria-pressed','false');
+    }
+    document.getElementById(tipo === 'pagar' ? 'panelPagar' : 'panelReceber').classList.remove('panel-hidden');
+    document.getElementById(tipo === 'pagar' ? 'tabPagar' : 'tabReceber').classList.add('active');
+    document.getElementById(tipo === 'pagar' ? 'tabPagar' : 'tabReceber').setAttribute('aria-pressed','true');
+    activePanel = tipo;
+  }
+  document.getElementById('tabPagar').addEventListener('click', function(){ showPanel('pagar'); });
+  document.getElementById('tabReceber').addEventListener('click', function(){ showPanel('receber'); });
 
   document.getElementById('clearAll').addEventListener('click', function(){
     if(confirm('Apagar todos os lançamentos? Esta ação não pode ser desfeita.')){
